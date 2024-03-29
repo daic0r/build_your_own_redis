@@ -1,6 +1,23 @@
 use std::{io::{Read, Write}, net::{TcpStream}};
 
-const MAX_MSG: usize = 4096usize;
+pub const MAX_MSG: usize = 4096usize;
+
+#[derive(PartialEq)]
+pub enum ConnectionState {
+    StateReq,
+    StateRes,
+    StateEnd
+}
+
+pub struct Connection {
+    pub fd: TcpStream,
+    pub state: ConnectionState,
+    pub rbuf_size: usize,
+    pub rbuf: [u8; 4 + MAX_MSG],
+    pub wbuf_size: usize,
+    pub wbuf_sent: usize,
+    pub wbuf: [u8; 4 + MAX_MSG]
+}
 
 pub fn read_full(stream: &mut TcpStream, buf: &mut [u8], n: usize) -> bool {
     let mut bytes_left = Some(n);

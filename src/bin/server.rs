@@ -1,7 +1,7 @@
 use std::net::{TcpListener,SocketAddr,TcpStream};
 use std::io::{Error, Read, Write};
 
-use redis::one_request;
+use redis::*;
 
 fn do_something(mut client: (TcpStream, SocketAddr)) {
     let mut buf: [u8; 128] = [0; 128];
@@ -18,21 +18,38 @@ fn main() {
         return;
     }
     let listener = listener.ok().unwrap();
+    listener.set_nonblocking(true).expect("Cannot set non-blocking");
+
+    let mut connections = vec![];
 
     loop {
-        let client = listener.accept();
-        if let Err(ref e) = client {
-            println!("Error accepting connection: {}", e.to_string());
-            return;
+        match listener.accept() {
+            Ok((client, addr)) => {
+                client.set_nonblocking(true).expect("Couldn't set non-blocking mode on accepted connection");
+                println!("Got a connection from {}", addr);
+                let conn = Connection{
+                    fd: client,
+                    state: ConnectionState::StateReq,
+                    rbuf_size: 0,
+                    rbuf: [0; 4 + MAX_MSG],
+                    wbuf_size: 0,
+                    wbuf_sent: 0,
+                    wbuf: [0; 4 + MAX_MSG]
+                };
+                connections.push(conn);
+            },
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {},
+            Err(e) => eprintln!("Error accepting connection: {}", e)
         }
-        let mut client = client.unwrap();
-        client.0.set_read_timeout(Some(std::time::Duration::from_millis(500)));
-        println!("Got a connection from {}", client.1);
-        loop {
-            let succ = one_request(&mut client.0);
-            if !succ {
-                break;
+        for client in &connections {
+            match client.state {
+                ConnectionState::StateReq => {
+                },
+                ConnectionState::StateRes => {
+                },
+                _ => {}
             }
         }
+        connections.retain(|e| e.state != ConnectionState::StateEnd);
     }
 }
