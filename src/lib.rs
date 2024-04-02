@@ -81,7 +81,7 @@ impl Connection {
             return false;
         }
 
-        let msg = String::from_utf8_lossy(&self.rbuf[4..]);
+        let msg = String::from_utf8_lossy(&self.rbuf[4..4+len]);
         println!("Client says: {}", msg);
 
         self.wbuf[..4].copy_from_slice((len as u32).to_le_bytes().as_slice());
@@ -199,15 +199,18 @@ pub fn one_request(stream: &mut TcpStream) -> bool {
     ret
 }
 
-pub fn query(stream: &mut TcpStream, text: &str) -> bool {
+pub fn send_req(stream: &mut TcpStream, text: &str) -> bool {
     let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
 
     let len_as_bytes = (text.len() as u32).to_le_bytes();
     buf[0..4].copy_from_slice(&len_as_bytes);
     buf[4..4+text.len()].copy_from_slice(text.as_bytes());
-    write_all(stream, &buf, 4 + text.len());
 
-    buf.fill_with(Default::default);
+    write_all(stream, &buf, 4 + text.len())
+}
+
+pub fn read_res(stream: &mut TcpStream) -> bool {
+    let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
 
     let err = read_full(stream, &mut buf, 4);
     if !err {
