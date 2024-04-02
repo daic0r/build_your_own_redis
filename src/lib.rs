@@ -91,9 +91,21 @@ impl Connection {
         let msg = String::from_utf8_lossy(&self.rbuf[4..4+len]);
         println!("Client says: {}", msg);
 
-        self.wbuf[..4].copy_from_slice((len as u32).to_le_bytes().as_slice());
-        self.wbuf[4..4 + len].copy_from_slice(&self.rbuf[4..4 + len]);
-        self.wbuf_size = 4 + len;
+        // self.wbuf[..4].copy_from_slice((len as u32).to_le_bytes().as_slice());
+        // self.wbuf[4..4 + len].copy_from_slice(&self.rbuf[4..4 + len]);
+        // self.wbuf_size = 4 + len;
+
+        let mut res_len = 0usize;
+        let status = Connection::do_request(&self.rbuf[4..], len, &mut self.wbuf[4 + 4..], &mut res_len);
+        if status == ResponseStatus::Err {
+            eprintln!("Error processing request");
+            self.state = ConnectionState::StateEnd;
+            return false;
+        }
+        res_len += 4;
+        self.wbuf[0..4].copy_from_slice(&(res_len as u32).to_le_bytes());
+        self.wbuf[4..8].copy_from_slice(&(status as u32).to_le_bytes());
+        self.wbuf_size = res_len + 4;
 
         let remain = self.rbuf_size - 4 - len;
         if remain > 0 {
