@@ -138,6 +138,40 @@ impl Connection {
 
         true
     }
+
+    fn parse_req(data: &[u8], len: usize) -> Option<Vec<String>> {
+        if len < 4 {
+            return None;
+        }
+
+        let mut num_commands = u32::from_le_bytes(data[0..4].try_into().expect("need 4-byte array")) as usize;
+
+        let mut ret = vec![];
+
+        let mut pos = 4;
+        while num_commands > 0 {
+            if pos + 4 > len {
+                return None;
+            }
+
+            let len_arg = u32::from_le_bytes(data[pos..pos+4].try_into().expect("need 4-byte array")) as usize;
+            if len_arg + 4 + pos > len {
+                return None;;
+            }
+            let arg = String::from_utf8_lossy(&data[pos+4..pos+4+len_arg]);
+
+            ret.push(arg.to_string());
+
+            num_commands -= 1;
+            pos += 4 + len_arg;
+        }
+
+        if pos != len {
+            return None;
+        }
+
+        Some(ret)
+    }
 }
 
 pub fn read_full(stream: &mut TcpStream, buf: &mut [u8], n: usize) -> bool {
@@ -229,4 +263,37 @@ pub fn read_res(stream: &mut TcpStream) -> bool {
     println!("Server says: {}", msg);
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_req() {
+        let mut buf = Vec::<u8>::new();
+        buf.resize(50, u8::default());
+
+        let num_args = 2u32.to_le_bytes();
+        buf[0..4].copy_from_slice(&num_args);
+
+        let arg1 = "hello".as_bytes();
+        let len_arg1 = arg1.len() as u32;
+        buf[4..8].copy_from_slice(&len_arg1.to_le_bytes());
+        buf[8..8+arg1.len()].copy_from_slice(arg1);
+
+        let start2 = 8 + arg1.len();
+        let arg2 = "worlds".as_bytes();
+        let len_arg2 = arg2.len() as u32;
+        buf[start2..start2+4].copy_from_slice(&len_arg2.to_le_bytes());
+        buf[start2+4..start2+4+arg2.len()].copy_from_slice(arg2);
+
+        let res = Connection::parse_req(&buf, start2 + 4 + arg2.len());
+        
+        assert!(res.is_some()); 
+        let res = res.unwrap();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[0], "hello");
+        assert_eq!(res[1], "worlds");
+    }
 }
