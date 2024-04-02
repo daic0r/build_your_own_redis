@@ -180,11 +180,11 @@ impl Connection {
         Some(ret)
     }
 
-    fn do_request(data: &[u8], len: usize) -> (ResponseStatus, Option<Vec<u8>>) {
+    fn do_request(data: &[u8], len: usize, res_buf: &mut [u8], res_len: &mut usize) -> ResponseStatus {
         let args = Connection::parse_req(data, len);
         if args.is_none() {
             eprintln!("bad request");
-            return (ResponseStatus::Err, None);
+            return ResponseStatus::Err;
         }
         let args = args.unwrap();
 
@@ -194,33 +194,33 @@ impl Connection {
             "get" => {
                 if args.len() != 2 {
                     eprintln!("Invalid number of arguments for get command");
-                    return (ResponseStatus::Err, None);
+                    return ResponseStatus::Err;
                 }
                 println!("COMMAND: get {}", args[1]);
-                return (ResponseStatus::Ok, Some(Vec::new()));
+                return ResponseStatus::Ok;
             },
             "set" => {
                 if args.len() != 3 {
                     eprintln!("Invalid number of arguments for set command");
-                    return (ResponseStatus::Err, None);
+                    return ResponseStatus::Err;
                 }
                 println!("COMMAND: set {}={}", args[1], args[2]);
-                return (ResponseStatus::Ok, Some(Vec::new()));
+                return ResponseStatus::Ok;
             },
             "del" => {
                 if args.len() != 2 {
                     eprintln!("Invalid number of arguments for del command");
-                    return (ResponseStatus::Err, None);
+                    return ResponseStatus::Err;
                 }
                 println!("COMMAND: del {}", args[1]);
-                return (ResponseStatus::Ok, Some(Vec::new()));
+                return ResponseStatus::Ok;
             },
             x => {
                 eprintln!("Unknown command: {}", x);
             }
         }
 
-        (ResponseStatus::Err, None)
+        ResponseStatus::Err
     }
 }
 
@@ -352,6 +352,12 @@ impl Connection {
         let mut buf = Vec::<u8>::new();
         buf.resize(50, u8::default());
 
+        // For the resonse
+        let mut res_buf = Vec::<u8>::new();
+        res_buf.resize(MAX_MSG + 4, u8::default());
+        let mut res_len = 0usize;
+
+
         let num_args = 2u32.to_le_bytes();
         buf[0..4].copy_from_slice(&num_args);
 
@@ -366,7 +372,7 @@ impl Connection {
         buf[start2..start2+4].copy_from_slice(&len_arg2.to_le_bytes());
         buf[start2+4..start2+4+arg2.len()].copy_from_slice(arg2);
 
-        let (status, _) = Connection::do_request(&buf, start2 + 4 + arg2.len());
+        let status = Connection::do_request(&buf, start2 + 4 + arg2.len(), &mut res_buf, &mut res_len);
         assert_eq!(status, ResponseStatus::Ok);
 
         let num_args = 3u32.to_le_bytes();
@@ -389,7 +395,7 @@ impl Connection {
         buf[start3..start3+4].copy_from_slice(&len_arg3.to_le_bytes());
         buf[start3+4..start3+4+arg3.len()].copy_from_slice(arg3);
 
-        let (status, _) = Connection::do_request(&buf, start3 + 4 + arg3.len());
+        let status = Connection::do_request(&buf, start3 + 4 + arg3.len(), &mut res_buf, &mut res_len);
         assert_eq!(status, ResponseStatus::Ok);
 
         let num_args = 2u32.to_le_bytes();
@@ -406,7 +412,7 @@ impl Connection {
         buf[start2..start2+4].copy_from_slice(&len_arg2.to_le_bytes());
         buf[start2+4..start2+4+arg2.len()].copy_from_slice(arg2);
 
-        let (status, _) = Connection::do_request(&buf, start2 + 4 + arg2.len());
+        let status = Connection::do_request(&buf, start2 + 4 + arg2.len(), &mut res_buf, &mut res_len);
         assert_eq!(status, ResponseStatus::Ok);
 
         let arg1 = "unknown".as_bytes();
@@ -414,7 +420,7 @@ impl Connection {
         buf[4..8].copy_from_slice(&len_arg1.to_le_bytes());
         buf[8..8+arg1.len()].copy_from_slice(arg1);
 
-        let (status, _) = Connection::do_request(&buf, 8 + arg1.len());
+        let status = Connection::do_request(&buf, 8 + arg1.len(), &mut res_buf, &mut res_len);
         assert_eq!(status, ResponseStatus::Err);
     }
 }
