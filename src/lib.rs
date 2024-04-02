@@ -9,6 +9,13 @@ pub enum ConnectionState {
     StateEnd
 }
 
+#[derive(PartialEq, Debug)]
+pub enum ResponseStatus {
+    Ok,
+    Err,
+    Nx
+}
+
 pub struct Connection {
     pub fd: TcpStream,
     pub state: ConnectionState,
@@ -156,7 +163,7 @@ impl Connection {
 
             let len_arg = u32::from_le_bytes(data[pos..pos+4].try_into().expect("need 4-byte array")) as usize;
             if len_arg + 4 + pos > len {
-                return None;;
+                return None;
             }
             let arg = String::from_utf8_lossy(&data[pos+4..pos+4+len_arg]);
 
@@ -172,106 +179,149 @@ impl Connection {
 
         Some(ret)
     }
+
+    fn do_request(data: &[u8], len: usize) -> (ResponseStatus, Option<Vec<u8>>) {
+        let args = Connection::parse_req(data, len);
+        if args.is_none() {
+            eprintln!("bad request");
+            return (ResponseStatus::Err, None);
+        }
+        let args = args.unwrap();
+
+        assert!(args.len() > 1);
+
+        match args.first().unwrap().as_str() {
+            "get" => {
+                if args.len() != 2 {
+                    eprintln!("Invalid number of arguments for get command");
+                    return (ResponseStatus::Err, None);
+                }
+                println!("COMMAND: get {}", args[1]);
+                return (ResponseStatus::Ok, Some(Vec::new()));
+            },
+            "set" => {
+                if args.len() != 3 {
+                    eprintln!("Invalid number of arguments for set command");
+                    return (ResponseStatus::Err, None);
+                }
+                println!("COMMAND: set {}={}", args[1], args[2]);
+                return (ResponseStatus::Ok, Some(Vec::new()));
+            },
+            "del" => {
+                if args.len() != 2 {
+                    eprintln!("Invalid number of arguments for del command");
+                    return (ResponseStatus::Err, None);
+                }
+                println!("COMMAND: del {}", args[1]);
+                return (ResponseStatus::Ok, Some(Vec::new()));
+            },
+            x => {
+                eprintln!("Unknown command: {}", x);
+            }
+        }
+
+        (ResponseStatus::Err, None)
+    }
 }
 
-pub fn read_full(stream: &mut TcpStream, buf: &mut [u8], n: usize) -> bool {
-    let mut bytes_left = Some(n);
-    let mut offset = 0;
-    loop {
-        let bytes = stream.read(&mut buf[offset..offset + bytes_left.unwrap()]);
-        if bytes.is_err() || *bytes.as_ref().unwrap() == 0 {
+    pub fn read_full(stream: &mut TcpStream, buf: &mut [u8], n: usize) -> bool {
+        let mut bytes_left = Some(n);
+        let mut offset = 0;
+        loop {
+            let bytes = stream.read(&mut buf[offset..offset + bytes_left.unwrap()]);
+            if bytes.is_err() || *bytes.as_ref().unwrap() == 0 {
+                return false;
+            }
+            bytes_left = bytes_left.unwrap().checked_sub(*bytes.as_ref().unwrap());
+            if bytes_left.is_none() || bytes_left.unwrap() == 0 {
+                break;
+            }
+            offset += bytes.unwrap();
+        }
+        true
+    }
+
+    pub fn write_all(stream: &mut TcpStream, buf: &[u8], n: usize) -> bool {
+        let mut bytes_left = Some(n);
+        let mut offset = 0;
+        while bytes_left.is_some() && bytes_left.unwrap() > 0 {
+            let bytes = stream.write(&buf[offset..offset + bytes_left.unwrap()]);
+            if bytes.is_err() {
+                return false;
+            }
+            bytes_left = bytes_left.unwrap().checked_sub(*bytes.as_ref().unwrap());
+            offset += bytes.unwrap();
+        }
+        true
+    }
+
+    pub fn one_request(stream: &mut TcpStream) -> bool {
+
+        let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
+
+        let err = read_full(stream, &mut buf, 4);
+        if !err {
+            eprintln!("Error reading buffer length");
             return false;
         }
-        bytes_left = bytes_left.unwrap().checked_sub(*bytes.as_ref().unwrap());
-        if bytes_left.is_none() || bytes_left.unwrap() == 0 {
-            break;
-        }
-        offset += bytes.unwrap();
-    }
-    true
-}
 
-pub fn write_all(stream: &mut TcpStream, buf: &[u8], n: usize) -> bool {
-    let mut bytes_left = Some(n);
-    let mut offset = 0;
-    while bytes_left.is_some() && bytes_left.unwrap() > 0 {
-        let bytes = stream.write(&buf[offset..offset + bytes_left.unwrap()]);
-        if bytes.is_err() {
+        let len = u32::from_le_bytes(buf[0..4].try_into().expect("Must be a 4 byte array"));
+        let err = read_full(stream, &mut buf[4..], len as usize);
+        if !err {
+            eprintln!("Error reading message");
             return false;
         }
-        bytes_left = bytes_left.unwrap().checked_sub(*bytes.as_ref().unwrap());
-        offset += bytes.unwrap();
-    }
-    true
-}
+        let msg = String::from_utf8_lossy(&buf[4..]);
+        println!("Client says: {}", msg);
 
-pub fn one_request(stream: &mut TcpStream) -> bool {
+        let reply = "world";
+        let len_as_bytes = (reply.len() as u32).to_le_bytes();
+        buf[0..4].copy_from_slice(&len_as_bytes);
+        buf[4..4+reply.len()].copy_from_slice(reply.as_bytes());
+        let ret = write_all(stream, &buf, 4 + reply.len());
 
-    let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
-
-    let err = read_full(stream, &mut buf, 4);
-    if !err {
-        eprintln!("Error reading buffer length");
-        return false;
+        ret
     }
 
-    let len = u32::from_le_bytes(buf[0..4].try_into().expect("Must be a 4 byte array"));
-    let err = read_full(stream, &mut buf[4..], len as usize);
-    if !err {
-        eprintln!("Error reading message");
-        return false;
-    }
-    let msg = String::from_utf8_lossy(&buf[4..]);
-    println!("Client says: {}", msg);
+    pub fn send_req(stream: &mut TcpStream, text: &str) -> bool {
+        let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
 
-    let reply = "world";
-    let len_as_bytes = (reply.len() as u32).to_le_bytes();
-    buf[0..4].copy_from_slice(&len_as_bytes);
-    buf[4..4+reply.len()].copy_from_slice(reply.as_bytes());
-    let ret = write_all(stream, &buf, 4 + reply.len());
+        let len_as_bytes = (text.len() as u32).to_le_bytes();
+        buf[0..4].copy_from_slice(&len_as_bytes);
+        buf[4..4+text.len()].copy_from_slice(text.as_bytes());
 
-    ret
-}
-
-pub fn send_req(stream: &mut TcpStream, text: &str) -> bool {
-    let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
-
-    let len_as_bytes = (text.len() as u32).to_le_bytes();
-    buf[0..4].copy_from_slice(&len_as_bytes);
-    buf[4..4+text.len()].copy_from_slice(text.as_bytes());
-
-    write_all(stream, &buf, 4 + text.len())
-}
-
-pub fn read_res(stream: &mut TcpStream) -> bool {
-    let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
-
-    let err = read_full(stream, &mut buf, 4);
-    if !err {
-        eprintln!("Error reading buffer length");
-        return false;
+        write_all(stream, &buf, 4 + text.len())
     }
 
-    let len = u32::from_le_bytes(buf[0..4].try_into().expect("Must be a 4 byte array"));
-    let err = read_full(stream, &mut buf[4..], len as usize);
-    if !err {
-        eprintln!("Error reading message");
-        return false;
+    pub fn read_res(stream: &mut TcpStream) -> bool {
+        let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
+
+        let err = read_full(stream, &mut buf, 4);
+        if !err {
+            eprintln!("Error reading buffer length");
+            return false;
+        }
+
+        let len = u32::from_le_bytes(buf[0..4].try_into().expect("Must be a 4 byte array"));
+        let err = read_full(stream, &mut buf[4..], len as usize);
+        if !err {
+            eprintln!("Error reading message");
+            return false;
+        }
+
+        let msg = String::from_utf8_lossy(&buf[4..]);
+        println!("Server says: {}", msg);
+
+        true
     }
 
-    let msg = String::from_utf8_lossy(&buf[4..]);
-    println!("Server says: {}", msg);
+    #[cfg(test)]
+    mod tests {
+        use super::*;
 
-    true
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_req() {
-        let mut buf = Vec::<u8>::new();
+        #[test]
+        fn test_parse_req() {
+            let mut buf = Vec::<u8>::new();
         buf.resize(50, u8::default());
 
         let num_args = 2u32.to_le_bytes();
@@ -295,5 +345,76 @@ mod tests {
         assert_eq!(res.len(), 2);
         assert_eq!(res[0], "hello");
         assert_eq!(res[1], "worlds");
+    }
+
+    #[test]
+    fn test_do_request() {
+        let mut buf = Vec::<u8>::new();
+        buf.resize(50, u8::default());
+
+        let num_args = 2u32.to_le_bytes();
+        buf[0..4].copy_from_slice(&num_args);
+
+        let arg1 = "get".as_bytes();
+        let len_arg1 = arg1.len() as u32;
+        buf[4..8].copy_from_slice(&len_arg1.to_le_bytes());
+        buf[8..8+arg1.len()].copy_from_slice(arg1);
+
+        let start2 = 8 + arg1.len();
+        let arg2 = "hello".as_bytes();
+        let len_arg2 = arg2.len() as u32;
+        buf[start2..start2+4].copy_from_slice(&len_arg2.to_le_bytes());
+        buf[start2+4..start2+4+arg2.len()].copy_from_slice(arg2);
+
+        let (status, _) = Connection::do_request(&buf, start2 + 4 + arg2.len());
+        assert_eq!(status, ResponseStatus::Ok);
+
+        let num_args = 3u32.to_le_bytes();
+        buf[0..4].copy_from_slice(&num_args);
+
+        let arg1 = "set".as_bytes();
+        let len_arg1 = arg1.len() as u32;
+        buf[4..8].copy_from_slice(&len_arg1.to_le_bytes());
+        buf[8..8+arg1.len()].copy_from_slice(arg1);
+
+        let start2 = 8 + arg1.len();
+        let arg2 = "hello".as_bytes();
+        let len_arg2 = arg2.len() as u32;
+        buf[start2..start2+4].copy_from_slice(&len_arg2.to_le_bytes());
+        buf[start2+4..start2+4+arg2.len()].copy_from_slice(arg2);
+
+        let start3 = start2 + 4 + arg2.len();
+        let arg3 = "world".as_bytes();
+        let len_arg3 = arg3.len() as u32;
+        buf[start3..start3+4].copy_from_slice(&len_arg3.to_le_bytes());
+        buf[start3+4..start3+4+arg3.len()].copy_from_slice(arg3);
+
+        let (status, _) = Connection::do_request(&buf, start3 + 4 + arg3.len());
+        assert_eq!(status, ResponseStatus::Ok);
+
+        let num_args = 2u32.to_le_bytes();
+        buf[0..4].copy_from_slice(&num_args);
+
+        let arg1 = "del".as_bytes();
+        let len_arg1 = arg1.len() as u32;
+        buf[4..8].copy_from_slice(&len_arg1.to_le_bytes());
+        buf[8..8+arg1.len()].copy_from_slice(arg1);
+
+        let start2 = 8 + arg1.len();
+        let arg2 = "hello".as_bytes();
+        let len_arg2 = arg2.len() as u32;
+        buf[start2..start2+4].copy_from_slice(&len_arg2.to_le_bytes());
+        buf[start2+4..start2+4+arg2.len()].copy_from_slice(arg2);
+
+        let (status, _) = Connection::do_request(&buf, start2 + 4 + arg2.len());
+        assert_eq!(status, ResponseStatus::Ok);
+
+        let arg1 = "unknown".as_bytes();
+        let len_arg1 = arg1.len() as u32;
+        buf[4..8].copy_from_slice(&len_arg1.to_le_bytes());
+        buf[8..8+arg1.len()].copy_from_slice(arg1);
+
+        let (status, _) = Connection::do_request(&buf, 8 + arg1.len());
+        assert_eq!(status, ResponseStatus::Err);
     }
 }
