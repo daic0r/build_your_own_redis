@@ -1,11 +1,12 @@
-use std::{io::{Read, Write}, net::{TcpStream, SocketAddr}};
+use std::{net::{TcpStream}};
+use redis::*;
 
-use redis::{send_req,read_res};
+//use redis::{send_req,read_res};
 
 fn main() {
     let client = TcpStream::connect("0.0.0.0:1234");
     if let Err(ref e) = client {
-        println!("Couldn't connect: {}", e.to_string());
+        println!("Couldn't connect: {}", e);
         return;
     }
     let mut client = client.unwrap();

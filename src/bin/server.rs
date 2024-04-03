@@ -1,12 +1,12 @@
-use std::io::{Error, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{TcpListener};
 
-use redis::*;
+use redis::connection::*;
+use redis::database::*;
 
 fn main() {
     let listener = TcpListener::bind("0.0.0.0:1234");
     if let Err(ref e) = listener {
-        println!("Couldn't bind: {}", e.to_string());
+        println!("Couldn't bind: {}", e);
         return;
     }
     let listener = listener.ok().unwrap();
@@ -31,6 +31,7 @@ fn main() {
                     wbuf_size: 0,
                     wbuf_sent: 0,
                     wbuf: [0; 4 + MAX_MSG],
+                    database: Database::new(),
                 };
                 connections.push(conn);
             }

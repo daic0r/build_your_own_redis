@@ -1,5 +1,5 @@
 use std::net::{TcpListener,SocketAddr,TcpStream};
-use std::io::{Error, Read};
+use std::io::{Read};
 
 fn do_something(mut client: (TcpStream, SocketAddr)) {
     let mut buf: [u8; 128] = [0; 128];
@@ -11,7 +11,7 @@ fn do_something(mut client: (TcpStream, SocketAddr)) {
 fn main() {
     let listener = TcpListener::bind("0.0.0.0:1234");
     if let Err(ref e) = listener {
-        println!("Couldn't bind: {}", e.to_string());
+        println!("Couldn't bind: {}", e);
         return;
     }
     let listener = listener.ok().unwrap();
@@ -19,7 +19,7 @@ fn main() {
     loop {
         let client = listener.accept();
         if let Err(ref e) = client {
-            println!("Error accepting connection: {}", e.to_string());
+            println!("Error accepting connection: {}", e);
             return;
         }
         do_something(client.unwrap());
