@@ -77,11 +77,23 @@ pub fn write_all(stream: &mut TcpStream, buf: &[u8], n: usize) -> bool {
 pub fn send_req(stream: &mut TcpStream, text: &str) -> bool {
     let mut buf: [u8; 4 + MAX_MSG] = [0; 4 + MAX_MSG];
 
-    let len_as_bytes = (text.len() as u32).to_le_bytes();
-    buf[0..4].copy_from_slice(&len_as_bytes);
-    buf[4..4+text.len()].copy_from_slice(text.as_bytes());
+    let split = text.split_whitespace().collect::<Vec<&str>>();
 
-    write_all(stream, &buf, 4 + text.len())
+    let num_args = (split.len() as u32).to_le_bytes();
+    buf[4..8].copy_from_slice(&num_args);
+
+    let mut pos = 8usize;
+    for s in split {
+        let arg_bytes = s.as_bytes();
+        let len_arg = arg_bytes.len() as u32;
+        buf[pos..pos+4].copy_from_slice(&len_arg.to_le_bytes());
+        pos += 4;
+        buf[pos..pos+arg_bytes.len()].copy_from_slice(arg_bytes);
+        pos += arg_bytes.len();
+    }
+    buf[0..4].copy_from_slice(&((pos - 4) as u32).to_le_bytes());
+
+    write_all(stream, &buf, pos)
 }
 
 pub fn read_res(stream: &mut TcpStream) -> bool {
@@ -99,9 +111,10 @@ pub fn read_res(stream: &mut TcpStream) -> bool {
         eprintln!("Error reading message");
         return false;
     }
+    let status = u32::from_le_bytes(buf[4..8].try_into().expect("Must be a 4 byte array"));
 
-    let msg = String::from_utf8_lossy(&buf[4..]);
-    println!("Server says: {}", msg);
+    let msg = String::from_utf8_lossy(&buf[8..]);
+    println!("Server says: ({}, '{}')", status, msg);
 
     true
 }

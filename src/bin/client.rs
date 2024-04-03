@@ -1,4 +1,5 @@
 use std::{net::{TcpStream}};
+use std::io;
 use redis::*;
 
 //use redis::{send_req,read_res};
@@ -11,19 +12,38 @@ fn main() {
     }
     let mut client = client.unwrap();
 
-    let query_list = ["hello1", "hello2", "hello3"];
+    loop {
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
 
-    for query in query_list {
-       if !send_req(&mut client, query) {
-           return;
-       }
-    }
+        if input.trim() == "exit" {
+            break;
+        }
 
-    for _ in 0..3 {
+        if !send_req(&mut client, &input) {
+            return;
+        }
+
         if !read_res(&mut client) {
             return;
         }
+
+        println!("Response received");
     }
+
+    // let query_list = ["hello1", "hello2", "hello3"];
+    //
+    // for query in query_list {
+    //    if !send_req(&mut client, query) {
+    //        return;
+    //    }
+    // }
+    //
+    // for _ in 0..3 {
+    //     if !read_res(&mut client) {
+    //         return;
+    //     }
+    // }
 
 
 

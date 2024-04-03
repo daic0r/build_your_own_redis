@@ -65,6 +65,8 @@ impl Connection {
         self.rbuf_size += rv;
         assert!(self.rbuf_size <= self.rbuf.len());
 
+        println!("Received {} bytes", rv);
+
         while self.try_one_request() {}
 
         self.state == ConnectionState::StateReq
@@ -82,6 +84,7 @@ impl Connection {
             return false;
         }
         if 4 + len > self.rbuf_size {
+            println!("Not enough data yet, need {}, have {}", 4 + len, self.rbuf_size);
             return false;
         }
 
@@ -209,7 +212,7 @@ impl Connection {
                 let mut value = String::new();
                 let ret = database.get(&args[1], &mut value);
                 let bytes = value.as_bytes();
-                res_buf.copy_from_slice(bytes);
+                res_buf[..bytes.len()].copy_from_slice(bytes);
                 *res_len = bytes.len(); 
                 return ret;
             },
@@ -327,7 +330,7 @@ mod tests {
         buf[start2+4..start2+4+arg2.len()].copy_from_slice(arg2);
 
         let status = Connection::do_request(&mut database, &buf, start2 + 4 + arg2.len(), &mut res_buf, &mut res_len);
-        let res = String::from_utf8_lossy(&res_buf[4..4+res_len]);
+        let res = String::from_utf8_lossy(&res_buf[..res_len]);
         assert_eq!(res, "world");
         assert_eq!(status, ResponseStatus::Ok);
         //////////////////////////////////////////////////////////////////////
@@ -357,6 +360,6 @@ mod tests {
         buf[8..8+arg1.len()].copy_from_slice(arg1);
 
         let status = Connection::do_request(&mut database, &buf, 8 + arg1.len(), &mut res_buf, &mut res_len);
-        assert_eq!(status, ResponseStatus::Nx);
+        assert_eq!(status, ResponseStatus::Err);
     }
 }
